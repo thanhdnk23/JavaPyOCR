@@ -1,0 +1,27 @@
+<div class="tab-pane fade" id="scan-from-base64" role="tabpanel" aria-labelledby="scan-from-base64-tab">
+    <form id="scan-from-base64-form">
+        <div class="mb-3">
+            <label for="base64File" class="form-label">Select Image File to Convert to Base64</label>
+            <input class="form-control" type="file" id="base64File" accept="image/*">
+        </div>
+        <div class="mb-3">
+            <label for="cardTypeBase64" class="form-label">Card Type</label>
+            <select class="form-control" id="cardTypeBase64" name="cardType">
+                <option th:each="cardType : ${cardTypes}" 
+                        th:value="${cardType.id}" 
+                        th:text="${cardType.descriptionVi}">CCCD</option>
+            </select>
+            <!-- <select class="form-control" id="cardTypeBase64">
+                <option value="0">CCCD - Citizen ID card</option>
+                <option value="1">CMND - Old ID card</option>
+                <option value="2">GPLX - Driver's License</option>
+            </select> -->
+        </div>
+        <button type="submit" class="btn btn-primary">Convert and Upload</button>
+    </form>
+
+    <div class="result-container" id="result-container-base64">
+        <div class="image-preview" id="image-preview-base64"></div>
+        <div class="json-response" id="scan-from-base64-response"></div>
+    </div>
+</div>

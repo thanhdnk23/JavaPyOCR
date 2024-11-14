@@ -1,0 +1,22 @@
+<div class="tab-pane fade show active" id="scan-from-file" role="tabpanel" aria-labelledby="scan-from-file-tab">
+    <form id="scan-from-file-form">
+        <div class="mb-3">
+            <label for="imageFile" class="form-label">Select Image File</label>
+            <input class="form-control" type="file" id="imageFile" accept="image/*">
+        </div>
+        <div class="mb-3">
+            <label for="cardTypeFile" class="form-label">Card Type</label>
+            <select class="form-control" id="cardTypeFile" name="cardType">
+                <option th:each="cardType : ${cardTypes}" 
+                        th:value="${cardType.id}" 
+                        th:text="${cardType.descriptionVi}">CCCD</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Upload and Scan</button>
+    </form>
+
+    <div class="result-container" id="result-container-file">
+        <div class="image-preview" id="image-preview-file"></div>
+        <div class="json-response" id="scan-from-file-response"></div>
+    </div>
+</div>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <th:block th:include="component/header.html"></th:block>
+</head>
+
+<body>
+    <div class="container mt-4">
+        <div
+            class="d-flex flex-wrap align-items-center justify-content-center justify-content-md-between py-3 mb-4 border-bottom text-bg-light">
+            <div class="col-md-3 mb-2 mb-md-0">
+                <a href="/" class="d-inline-flex link-body-emphasis text-decoration-none">
+                    <svg class="bi" width="40" height="32" role="img" aria-label="Bootstrap">
+                        <use xlink:href="#bootstrap"></use>
+                    </svg>
+                </a>
+            </div>
+
+            <ul class="nav col-12 col-md-auto mb-2 justify-content-center mb-md-0">
+                <li><a th:href="@{/home}" class="nav-link px-2 link-secondary">Home</a></li>
+                <li><a href="#" class="nav-link px-2">Features</a></li>
+                <li><a href="#" class="nav-link px-2">Pricing</a></li>
+                <li><a href="#" class="nav-link px-2">FAQs</a></li>
+                <li><a th:href="@{/api-docs}" class="nav-link px-2">Api Docs</a></li>
+            </ul>
+
+            <div class="col-md-3 text-end">
+                <button type="button" class="btn btn-outline-primary me-2">Login</button>
+                <button type="button" class="btn btn-primary">Sign-up</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phần nội dung chính -->
+    <div class="container mt-4" id="main-content">
+        <!-- Nội dung "Home" -->
+        <div th:if="${!showApiDocs}">
+            <h1 class="text-center mb-4">Citizen ID Card Scanner</h1>
+            <th:block th:include="component/tabs.html"></th:block>
+
+            <div class="tab-content mt-4" id="myTabContent">
+                <th:block th:include="component/scan-file.html"></th:block>
+                <th:block th:include="component/scan-base64.html"></th:block>
+                <th:block th:include="component/scan-camera.html"></th:block>
+            </div>
+        </div>
+
+        <!-- Nội dung "Api Docs" -->
+        <div th:if="${showApiDocs}">
+            <h1 class="text-center mb-4">API Documentation</h1>
+            <iframe src="/swagger-ui/index.html" width="100%" height="800" frameborder="0" 
+                    style="border: 1px solid #ddd;"></iframe>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div>
+            <p id="loadingMessage" class="showLoading">Đang gửi dữ liệu về máy chủ, vui lòng chờ!</p>
+            <div class="wave-container">
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+            </div>
+        </div>
+    </div>
+
+    <th:block th:include="component/footer.html"></th:block>
+    <script>
+        let timeout1, timeout2;
+
+        // Convert image to base64
+        function convertFileToBase64(file, callback) {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => callback(reader.result.split(',')[1]);
+            reader.onerror = (error) => console.log('Error:', error);
+        }
+
+        // Draw detected text boxes on the image
+        function drawBoxes(imageId, ocrResult) {
+            const image = document.getElementById(imageId).querySelector('img');
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            canvas.className = 'highlight-canvas';
+            const context = canvas.getContext('2d');
+            image.parentElement.appendChild(canvas);
+
+            // Draw boxes for each OCR result
+            ocrResult.forEach(result => {
+                const color = getColorByScore(result.score);
+                context.strokeStyle = color;
+                context.lineWidth = 2;
+                context.beginPath();
+                context.moveTo(result.box[0][0], result.box[0][1]);
+                result.box.forEach(point => context.lineTo(point[0], point[1]));
+                context.closePath();
+                context.stroke();
+            });
+        }
+
+        // Get color based on the OCR score
+        function getColorByScore(score) {
+            if (score > 0.95) return 'green';
+            if (score > 0.85) return 'orange';
+            return 'red';
+        }
+
+        // Update table with OCR results
+        function updateOcrTable(responseId, ocrResult) {
+            const table = document.createElement('table');
+            table.className = 'ocr-table';
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = `
+                <th>Text</th>
+                <th>Confidence Score</th>
+            `;
+            table.appendChild(headerRow);
+
+            ocrResult.forEach(result => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${result.text}</td>
+                    <td style="color: ${getColorByScore(result.score)}">${result.score.toFixed(4)}</td>
+                `;
+                table.appendChild(row);
+            });
+
+            const responseContainer = document.getElementById(responseId);
+            responseContainer.innerHTML = '';
+            responseContainer.appendChild(table);
+        }
+
+        // Send request to server and handle response
+        function sendRequest(apiEndpoint, data, responseId, imageId, file, isFile) {
+            const imagePreview = document.getElementById(imageId);
+            imagePreview.innerHTML = `<a href="${URL.createObjectURL(file)}" data-lightbox="image-preview"><img src="${URL.createObjectURL(file)}" alt="Image Preview"></a>`;
+            gsap.fromTo(imagePreview, { opacity: 0 }, { opacity: 1, duration: 1 });
+
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            loadingOverlay.style.display = 'block';
+            disableButtons(true);
+
+            let options;
+            if (isFile) {
+                const formData = new FormData();
+                formData.append("fileImage", file);
+                formData.append("cardType", data.cardType);
+                options = {
+                    method: 'POST',
+                    body: formData,
+                };
+            } else {
+                options = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                };
+            }
+
+            fetch(apiEndpoint, options)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Unsupported Media Type");
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.data && data.data.ocrType === 'OCR') {
+                        drawBoxes(imageId, data.data.ocrResult);
+                        updateOcrTable(responseId, data.data.ocrResult);
+                    } else {
+                        document.getElementById(responseId).textContent = JSON.stringify(data, null, 2);
+                    }
+                    gsap.fromTo(document.getElementById(responseId), { opacity: 0 }, { opacity: 1, duration: 1 });
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    document.getElementById(responseId).textContent = 'Error occurred while processing the request.';
+                })
+                .finally(() => {
+                    loadingOverlay.style.display = 'none';
+                    disableButtons(false);
+                    clearTimeout(timeout1);
+                    clearTimeout(timeout2);
+                });
+
+            // Change the message after a certain period
+            timeout1 = setTimeout(() => {
+                document.getElementById('loadingMessage').textContent = "Đang phân tích thông tin từ hình ảnh, vui lòng chờ...";
+            }, 1000);
+
+            timeout2 = setTimeout(() => {
+                document.getElementById('loadingMessage').textContent = "Quá trình phân tích mất nhiều thời gian hơn dự kiến. Vui lòng kiên nhẫn!";
+            }, 3000);
+        }
+
+        // Disable/Enable buttons
+        function disableButtons(disable) {
+            document.querySelectorAll('button').forEach(button => {
+                button.disabled = disable;
+            });
+        }
+
+        // Handle file upload form submission
+        document.getElementById('scan-from-file-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('imageFile');
+            const cardType = document.getElementById('cardTypeFile').value;
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                sendRequest('/api/v1/citizen-id-card/scan-from-file', { cardType }, 'scan-from-file-response',
+                    'image-preview-file', file, true);
+            }
+        });
+
+        // Handle base64 file form submission
+        document.getElementById('scan-from-base64-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('base64File');
+            const cardType = document.getElementById('cardTypeBase64').value;
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                convertFileToBase64(file, (base64Image) => {
+                    const data = { base64Image, cardType };
+                    sendRequest('/api/v1/citizen-id-card/scan-from-base64', data, 'scan-from-base64-response', 'image-preview-base64', file, false);
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>

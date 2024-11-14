@@ -1,0 +1,288 @@
+<div class="tab-pane fade" id="scan-from-camera" role="tabpanel" aria-labelledby="scan-from-camera-tab">
+    <form id="scan-from-camera-form">
+        <div class="mb-3">
+            <label for="cardTypeCamera" class="form-label">Loại Thẻ</label>
+            <select class="form-control" id="cardTypeCamera" name="cardType">
+                <option th:each="cardType : ${cardTypes}" th:value="${cardType.id}" th:text="${cardType.descriptionVi}">
+                    CCCD</option>
+            </select>
+        </div>
+        <button type="button" id="start-camera-btn" class="btn btn-primary">Mở Camera</button>
+        <button type="submit" class="btn btn-success" id="capture-btn" style="display:none;">Chụp Ảnh</button>
+        <button type="button" class="btn btn-danger" id="cancel-btn" style="display:none;">Thoát</button>
+    </form>
+
+    <div class="result-container" id="result-container-camera">
+        <video id="camera" autoplay playsinline></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+
+        <div class="overlay">
+            <div class="logo">MyLogo</div>
+            <div class="time" id="time">00:00</div>
+            <div class="frame" id="frame" style="display: none;"></div>
+            <div class="instructions" id="instructions">Vui lòng đặt thẻ căn cước hoặc ATM vào khung để quét</div>
+        </div>
+
+        <div class="image-preview" id="image-preview-camera"></div>
+        <div class="json-response" id="scan-from-camera-response"></div>
+    </div>
+</div>
+
+<style>
+    /* CSS cho chế độ toàn màn hình */
+    #camera {
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        display: none;
+    }
+    .overlay, .frame, .logo, .time, .instructions {
+        /* Giữ nguyên CSS */
+    }
+</style>
+
+<script>
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('canvas');
+    const captureBtn = document.getElementById('capture-btn');
+    const startCameraBtn = document.getElementById('start-camera-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const imagePreview = document.getElementById('image-preview-camera');
+    const frame = document.getElementById('frame');
+    const instructions = document.getElementById('instructions');
+    const overlay = document.querySelector('.overlay');
+
+    let countdownInterval;
+    let countdownValue = 2;
+    let isCardInPosition = false;
+    let intervalId;
+    let videoStream;
+
+    startCameraBtn.addEventListener('click', async function () {
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            video.srcObject = videoStream;
+            video.style.display = 'block';
+            overlay.style.display = 'flex';
+            startCameraBtn.style.display = 'none';
+            captureBtn.style.display = 'block';
+            cancelBtn.style.display = 'block';
+            frame.style.display = 'block';
+            startScanning();
+        } catch (error) {
+            console.error('Lỗi khi truy cập camera', error);
+        }
+    });
+
+    function checkCardPositionWithOpenCV() {
+        const context = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const src = cv.imread(canvas);
+        const gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+        const edges = new cv.Mat();
+        cv.Canny(gray, edges, 50, 100);
+        const contours = new cv.MatVector();
+        const hierarchy = new cv.Mat();
+        cv.findContours(edges, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+
+        let isCardDetected = false;
+        for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const rect = cv.boundingRect(contour);
+            if (rect.width > 250 && rect.height > 150 && rect.width < 350 && rect.height < 250) {
+                isCardDetected = true;
+                break;
+            }
+        }
+
+        frame.style.borderColor = isCardDetected ? "limegreen" : "red";
+
+        if (isCardDetected && !isCardInPosition) {
+            isCardInPosition = true;
+            startCountdown();
+        } else if (!isCardDetected && isCardInPosition) {
+            clearInterval(countdownInterval);
+            countdownValue = 2;
+            instructions.textContent = "Vui lòng đặt thẻ căn cước hoặc ATM vào khung để quét";
+            isCardInPosition = false;
+        }
+
+        src.delete();
+        gray.delete();
+        edges.delete();
+        contours.delete();
+        hierarchy.delete();
+    }
+
+    function startCountdown() {
+        instructions.textContent = `Vui lòng giữ nguyên vị trí... ${countdownValue}`;
+        countdownInterval = setInterval(() => {
+            countdownValue--;
+            instructions.textContent = `Vui lòng giữ nguyên vị trí... ${countdownValue}`;
+            if (countdownValue === 0) {
+                clearInterval(countdownInterval);
+                captureAndSendImage();
+            }
+        }, 1000);
+    }
+
+    async function captureAndSendImage() {
+        const context = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL('image/png');
+        const file = dataURLToFile(imageData, 'captured-image.png');
+        imagePreview.innerHTML = `<a href="${imageData}" data-lightbox="image-preview"><img src="${imageData}" alt="Captured Image"></a>`;
+
+        const response = await sendRequest('/api/v1/citizen-id-card/scan-from-file', 
+            { cardType: document.getElementById('cardTypeCamera').value }, 
+            'scan-from-camera-response', 
+            'image-preview-camera', 
+            file, 
+            true);
+
+        if (response && response.success) {
+            stopScanning();
+            closeCamera();
+        } else {
+            instructions.textContent = "Không nhận diện được thẻ, vui lòng thử lại.";
+            startScanning();
+        }
+    }
+
+    function closeCamera() {
+        videoStream.getTracks().forEach(track => track.stop());
+        video.style.display = 'none';
+        frame.style.display = 'none';
+        startCameraBtn.style.display = 'block';
+        captureBtn.style.display = 'none';
+        cancelBtn.style.display = 'none';
+    }
+
+    function dataURLToFile(dataUrl, filename) {
+        const arr = dataUrl.split(','), mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+        return new File([u8arr], filename, { type: mime });
+    }
+
+    async function sendRequest(url, formData, responseContainerId, previewContainerId, file, isFile) {
+        const formDataToSend = new FormData();
+        formDataToSend.append("cardType", formData.cardType);
+        if (isFile) formDataToSend.append("file", file);
+        const res = await fetch(url, { method: 'POST', body: formDataToSend });
+        const data = await res.json();
+        document.getElementById(responseContainerId).innerHTML = JSON.stringify(data, null, 2);
+        return data;
+    }
+
+    function startScanning() {
+        intervalId = setInterval(checkCardPositionWithOpenCV, 500);
+        setTimeout(() => {
+            instructions.textContent = "Quá trình quét hết thời gian!";
+            stopScanning();
+        }, 40000);  // 40s
+    }
+
+    function stopScanning() {
+        clearInterval(intervalId);
+        clearInterval(countdownInterval);
+        cancelBtn.style.display = 'none';
+        instructions.textContent = "Quá trình quét kết thúc";
+    }
+
+    cancelBtn.addEventListener('click', function () {
+        stopScanning();
+        closeCamera();
+    });
+
+    function onOpenCvReady() {
+        console.log("OpenCV.js đã sẵn sàng");
+        setInterval(checkCardPositionWithOpenCV, 500);
+    }
+</script>
+<script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
+<style>
+    /* Video toàn màn hình */
+    #camera {
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        display: none;
+    }
+/* Overlay cho toàn màn hình */
+.overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 2;
+    color: white;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    pointer-events: none;
+}
+
+.logo {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 24px;
+    font-weight: bold;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.time {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 18px;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.instructions {
+    font-size: 18px;
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 10px 15px;
+    border-radius: 5px;
+    max-width: 80%;
+    margin-top: 20px;
+}
+
+.frame {
+    width: 300px;
+    height: 190px;
+    border: 3px dashed #fff;
+    border-radius: 8px;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+    position: relative;
+    margin-bottom: 20px;
+    transition: border-color 0.3s ease;
+}
+
+</style>

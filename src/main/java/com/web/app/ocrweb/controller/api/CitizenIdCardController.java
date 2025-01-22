@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -163,5 +164,12 @@ public class CitizenIdCardController {
                                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                                                         .body(errorResponse);
                                 });
+        }
+        @GetMapping("Test")
+        public ReturnObject returnText() {
+            ReturnObject returnObj = new ReturnObject(); 
+            returnObj.setData("ok");
+            // Thiết lập giá trị cho returnObj nếu cần
+            return returnObj;  // Spring sẽ tự động chuyển đổi đối tượng ReturnObject thành JSON
         }
 }
